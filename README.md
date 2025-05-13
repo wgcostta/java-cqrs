@@ -25,3 +25,4 @@ This project does not have any external dependencies.
 
 ## License
 This project is licensed under the MIT License. See the LICENSE file for more details.
+
