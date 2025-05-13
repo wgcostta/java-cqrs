@@ -1,0 +1,932 @@
+// Estrutura do projeto:
+// src/main/java/com/example/cqrsdemo
+//   - CqrsDemoApplication.java
+//   - command
+//     - api
+//       - CreateProductCommand.java
+//       - UpdateProductCommand.java
+//       - DeleteProductCommand.java
+//     - handler
+//       - ProductCommandHandler.java
+//   - query
+//     - api
+//       - GetProductQuery.java
+//       - GetAllProductsQuery.java
+//     - handler
+//       - ProductQueryHandler.java
+//   - domain
+//     - model
+//       - Product.java
+//     - repository
+//       - ProductRepository.java
+//   - controller
+//     - ProductCommandController.java
+//     - ProductQueryController.java
+//   - config
+//     - CqrsConfig.java
+//   - event
+//     - ProductCreatedEvent.java
+//     - ProductUpdatedEvent.java
+//     - ProductDeletedEvent.java
+
+// === CqrsDemoApplication.java ===
+package com.example.cqrsdemo;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class CqrsDemoApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(CqrsDemoApplication.class, args);
+    }
+}
+
+// === Command API ===
+// CreateProductCommand.java
+package com.example.cqrsdemo.command.api;
+
+import lombok.Data;
+
+@Data
+public class CreateProductCommand {
+    private String name;
+    private String description;
+    private double price;
+    private int quantity;
+}
+
+// UpdateProductCommand.java
+package com.example.cqrsdemo.command.api;
+
+import lombok.Data;
+
+@Data
+public class UpdateProductCommand {
+    private String id;
+    private String name;
+    private String description;
+    private double price;
+    private int quantity;
+}
+
+// DeleteProductCommand.java
+package com.example.cqrsdemo.command.api;
+
+import lombok.Data;
+
+@Data
+public class DeleteProductCommand {
+    private String id;
+}
+
+// === Command Handler ===
+// ProductCommandHandler.java
+package com.example.cqrsdemo.command.handler;
+
+import com.example.cqrsdemo.command.api.CreateProductCommand;
+import com.example.cqrsdemo.command.api.DeleteProductCommand;
+import com.example.cqrsdemo.command.api.UpdateProductCommand;
+import com.example.cqrsdemo.domain.model.Product;
+import com.example.cqrsdemo.domain.repository.ProductRepository;
+import com.example.cqrsdemo.event.ProductCreatedEvent;
+import com.example.cqrsdemo.event.ProductDeletedEvent;
+import com.example.cqrsdemo.event.ProductUpdatedEvent;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.stereotype.Service;
+
+import java.util.UUID;
+
+@Service
+public class ProductCommandHandler {
+
+    private final ProductRepository productRepository;
+    private final ApplicationEventPublisher eventPublisher;
+
+    @Autowired
+    public ProductCommandHandler(ProductRepository productRepository, ApplicationEventPublisher eventPublisher) {
+        this.productRepository = productRepository;
+        this.eventPublisher = eventPublisher;
+    }
+
+    public String handleCreateProductCommand(CreateProductCommand command) {
+        Product product = new Product();
+        product.setId(UUID.randomUUID().toString());
+        product.setName(command.getName());
+        product.setDescription(command.getDescription());
+        product.setPrice(command.getPrice());
+        product.setQuantity(command.getQuantity());
+
+        productRepository.save(product);
+        
+        // Publicar evento
+        eventPublisher.publishEvent(new ProductCreatedEvent(product));
+        
+        return product.getId();
+    }
+
+    public void handleUpdateProductCommand(UpdateProductCommand command) {
+        Product product = productRepository.findById(command.getId())
+                .orElseThrow(() -> new RuntimeException("Product not found with id: " + command.getId()));
+        
+        product.setName(command.getName());
+        product.setDescription(command.getDescription());
+        product.setPrice(command.getPrice());
+        product.setQuantity(command.getQuantity());
+
+        productRepository.save(product);
+        
+        // Publicar evento
+        eventPublisher.publishEvent(new ProductUpdatedEvent(product));
+    }
+
+    public void handleDeleteProductCommand(DeleteProductCommand command) {
+        Product product = productRepository.findById(command.getId())
+                .orElseThrow(() -> new RuntimeException("Product not found with id: " + command.getId()));
+        
+        productRepository.delete(product);
+        
+        // Publicar evento
+        eventPublisher.publishEvent(new ProductDeletedEvent(command.getId()));
+    }
+}
+
+// === Query API ===
+// GetProductQuery.java
+package com.example.cqrsdemo.query.api;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+
+@Data
+@AllArgsConstructor
+public class GetProductQuery {
+    private String id;
+}
+
+// GetAllProductsQuery.java
+package com.example.cqrsdemo.query.api;
+
+public class GetAllProductsQuery {
+    // Classe marcadora para consulta de todos os produtos
+}
+
+// === Query Handler ===
+// ProductQueryHandler.java
+package com.example.cqrsdemo.query.handler;
+
+import com.example.cqrsdemo.domain.model.Product;
+import com.example.cqrsdemo.domain.repository.ProductRepository;
+import com.example.cqrsdemo.query.api.GetAllProductsQuery;
+import com.example.cqrsdemo.query.api.GetProductQuery;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class ProductQueryHandler {
+
+    private final ProductRepository productRepository;
+
+    @Autowired
+    public ProductQueryHandler(ProductRepository productRepository) {
+        this.productRepository = productRepository;
+    }
+
+    public Product handle(GetProductQuery query) {
+        return productRepository.findById(query.getId())
+                .orElseThrow(() -> new RuntimeException("Product not found with id: " + query.getId()));
+    }
+
+    public List<Product> handle(GetAllProductsQuery query) {
+        return productRepository.findAll();
+    }
+}
+
+// === domain imports ===
+package com.example.cqrsdemo.domain.model;
+
+import jakarta.persistence.*;
+import lombok.Data;
+
+@Data
+@Entity
+@Table(name = "products")
+public class Product {
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private String id;
+    
+    @Column(nullable = false)
+    private String name;
+    
+    @Column(length = 1000)
+    private String description;
+    
+    @Column(nullable = false)
+    private double price;
+    
+    @Column(nullable = false)
+    private int quantity;
+}
+
+// === Repository ===
+// ProductRepository.java
+package com.example.cqrsdemo.domain.repository;
+
+import com.example.cqrsdemo.domain.model.Product;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface ProductRepository extends JpaRepository<Product, String> {
+}
+
+// === CQRS API Gateway ===
+// CqrsApiGateway.java
+package com.example.cqrsdemo.gateway;
+
+import com.example.cqrsdemo.command.api.CreateProductCommand;
+import com.example.cqrsdemo.command.api.DeleteProductCommand;
+import com.example.cqrsdemo.command.api.UpdateProductCommand;
+import com.example.cqrsdemo.command.handler.ProductCommandHandler;
+import com.example.cqrsdemo.domain.model.Product;
+import com.example.cqrsdemo.query.api.GetAllProductsQuery;
+import com.example.cqrsdemo.query.api.GetProductQuery;
+import com.example.cqrsdemo.query.handler.ProductQueryHandler;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+
+/**
+ * Gateway central para processamento de comandos e consultas CQRS
+ * Permite comunicação direta entre microsserviços sem exposição REST
+ */
+@Component
+public class CqrsApiGateway {
+
+    private final ProductCommandHandler commandHandler;
+    private final ProductQueryHandler queryHandler;
+
+    @Autowired
+    public CqrsApiGateway(ProductCommandHandler commandHandler, ProductQueryHandler queryHandler) {
+        this.commandHandler = commandHandler;
+        this.queryHandler = queryHandler;
+    }
+
+    // Métodos de comando
+    public String sendCommand(CreateProductCommand command) {
+        return commandHandler.handleCreateProductCommand(command);
+    }
+
+    public void sendCommand(UpdateProductCommand command) {
+        commandHandler.handleUpdateProductCommand(command);
+    }
+
+    public void sendCommand(DeleteProductCommand command) {
+        commandHandler.handleDeleteProductCommand(command);
+    }
+
+    // Métodos de consulta
+    public Product sendQuery(GetProductQuery query) {
+        return queryHandler.handle(query);
+    }
+
+    public List<Product> sendQuery(GetAllProductsQuery query) {
+        return queryHandler.handle(query);
+    }
+}
+
+// === Events ===
+// ProductCreatedEvent.java
+package com.example.cqrsdemo.event;
+
+import com.example.cqrsdemo.domain.model.Product;
+import lombok.Getter;
+import org.springframework.context.ApplicationEvent;
+
+@Getter
+public class ProductCreatedEvent extends ApplicationEvent {
+    private final Product product;
+
+    public ProductCreatedEvent(Product product) {
+        super(product);
+        this.product = product;
+    }
+}
+
+// ProductUpdatedEvent.java
+package com.example.cqrsdemo.event;
+
+import com.example.cqrsdemo.domain.model.Product;
+import lombok.Getter;
+import org.springframework.context.ApplicationEvent;
+
+@Getter
+public class ProductUpdatedEvent extends ApplicationEvent {
+    private final Product product;
+
+    public ProductUpdatedEvent(Product product) {
+        super(product);
+        this.product = product;
+    }
+}
+
+// ProductDeletedEvent.java
+package com.example.cqrsdemo.event;
+
+import lombok.Getter;
+import org.springframework.context.ApplicationEvent;
+
+@Getter
+public class ProductDeletedEvent extends ApplicationEvent {
+    private final String productId;
+
+    public ProductDeletedEvent(String productId) {
+        super(productId);
+        this.productId = productId;
+    }
+}
+
+// === Configuration ===
+// CqrsConfig.java
+package com.example.cqrsdemo.config;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+
+@Configuration
+@EnableJpaRepositories(basePackages = "com.example.cqrsdemo.domain.repository")
+public class CqrsConfig {
+    // Configurações adicionais podem ser adicionadas aqui
+}
+
+// === application.properties ===
+// spring.datasource.url=jdbc:mysql://localhost:3306/cqrs_demo
+// spring.datasource.username=root
+// spring.datasource.password=root
+// spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
+// spring.jpa.hibernate.ddl-auto=update
+// spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQLDialect
+// server.port=8080
+
+// === pom.xml ===
+/*
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.3</version>
+        <relativePath/>
+    </parent>
+    
+    <groupId>com.example</groupId>
+    <artifactId>cqrs-demo</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>cqrs-demo</name>
+    <description>Spring Boot project with CQRS pattern</description>
+    
+    <properties>
+        <java.version>17</java.version>
+    </properties>
+    
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-mongodb</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+    
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+*/
+
+
+
+// opcional
+
+// === REST Controller Adapter (opcional para expor API externamente) ===
+package com.example.cqrsdemo.adapter.rest;
+
+import com.example.cqrsdemo.command.api.CreateProductCommand;
+import com.example.cqrsdemo.command.api.DeleteProductCommand;
+import com.example.cqrsdemo.command.api.UpdateProductCommand;
+import com.example.cqrsdemo.domain.model.Product;
+import com.example.cqrsdemo.gateway.CqrsApiGateway;
+import com.example.cqrsdemo.query.api.GetAllProductsQuery;
+import com.example.cqrsdemo.query.api.GetProductQuery;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+/**
+ * Adaptador REST opcional que pode ser ativado via propriedade de configuração
+ * Apenas para demonstração/testes - em produção os microsserviços se comunicariam
+ * diretamente via CqrsApiGateway
+ */
+@RestController
+@RequestMapping("/api/products")
+@ConditionalOnProperty(name = "cqrs.rest.enabled", havingValue = "true", matchIfMissing = false)
+public class ProductRestAdapter {
+
+    private final CqrsApiGateway apiGateway;
+
+    @Autowired
+    public ProductRestAdapter(CqrsApiGateway apiGateway) {
+        this.apiGateway = apiGateway;
+    }
+
+    // Endpoints de comando
+    @PostMapping
+    public ResponseEntity<String> createProduct(@RequestBody CreateProductCommand command) {
+        String productId = apiGateway.sendCommand(command);
+        return new ResponseEntity<>(productId, HttpStatus.CREATED);
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<Void> updateProduct(@PathVariable String id, @RequestBody UpdateProductCommand command) {
+        command.setId(id);
+        apiGateway.sendCommand(command);
+        return new ResponseEntity<>(HttpStatus.OK);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteProduct(@PathVariable String id) {
+        DeleteProductCommand command = new DeleteProductCommand();
+        command.setId(id);
+        apiGateway.sendCommand(command);
+        return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+    }
+
+    // Endpoints de consulta
+    @GetMapping("/{id}")
+    public ResponseEntity<Product> getProduct(@PathVariable String id) {
+        GetProductQuery query = new GetProductQuery(id);
+        Product product = apiGateway.sendQuery(query);
+        return new ResponseEntity<>(product, HttpStatus.OK);
+    }
+
+    @GetMapping
+    public ResponseEntity<List<Product>> getAllProducts() {
+        GetAllProductsQuery query = new GetAllProductsQuery();
+        List<Product> products = apiGateway.sendQuery(query);
+        return new ResponseEntity<>(products, HttpStatus.OK);
+    }
+}
+
+// TEST - 1
+package com.example.cqrsdemo.gateway;
+
+import com.example.cqrsdemo.command.api.CreateProductCommand;
+import com.example.cqrsdemo.command.api.DeleteProductCommand;
+import com.example.cqrsdemo.command.api.UpdateProductCommand;
+import com.example.cqrsdemo.command.handler.ProductCommandHandler;
+import com.example.cqrsdemo.domain.model.Product;
+import com.example.cqrsdemo.query.api.GetAllProductsQuery;
+import com.example.cqrsdemo.query.api.GetProductQuery;
+import com.example.cqrsdemo.query.handler.ProductQueryHandler;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.Arrays;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class CqrsApiGatewayTest {
+
+    @Mock
+    private ProductCommandHandler commandHandler;
+
+    @Mock
+    private ProductQueryHandler queryHandler;
+
+    @InjectMocks
+    private CqrsApiGateway apiGateway;
+
+    private CreateProductCommand createCommand;
+    private UpdateProductCommand updateCommand;
+    private DeleteProductCommand deleteCommand;
+    private GetProductQuery getProductQuery;
+    private GetAllProductsQuery getAllProductsQuery;
+    private Product product;
+    private List<Product> productList;
+
+    @BeforeEach
+    void setUp() {
+        // Setup create command
+        createCommand = new CreateProductCommand();
+        createCommand.setName("Test Product");
+        createCommand.setDescription("Test Description");
+        createCommand.setPrice(100.0);
+        createCommand.setQuantity(10);
+
+        // Setup update command
+        updateCommand = new UpdateProductCommand();
+        updateCommand.setId("123");
+        updateCommand.setName("Updated Product");
+        updateCommand.setDescription("Updated Description");
+        updateCommand.setPrice(150.0);
+        updateCommand.setQuantity(15);
+
+        // Setup delete command
+        deleteCommand = new DeleteProductCommand();
+        deleteCommand.setId("123");
+
+        // Setup getProduct query
+        getProductQuery = new GetProductQuery("123");
+
+        // Setup getAllProducts query
+        getAllProductsQuery = new GetAllProductsQuery();
+
+        // Setup product
+        product = new Product();
+        product.setId("123");
+        product.setName("Test Product");
+        product.setDescription("Test Description");
+        product.setPrice(100.0);
+        product.setQuantity(10);
+
+        // Setup product list
+        Product product2 = new Product();
+        product2.setId("456");
+        product2.setName("Another Product");
+        productList = Arrays.asList(product, product2);
+    }
+
+    @Test
+    void sendCommand_CreateProductCommand_ShouldDelegateToCommandHandler() {
+        // Arrange
+        when(commandHandler.handleCreateProductCommand(any(CreateProductCommand.class))).thenReturn("123");
+
+        // Act
+        String productId = apiGateway.sendCommand(createCommand);
+
+        // Assert
+        assertEquals("123", productId);
+        verify(commandHandler, times(1)).handleCreateProductCommand(createCommand);
+    }
+
+    @Test
+    void sendCommand_UpdateProductCommand_ShouldDelegateToCommandHandler() {
+        // Arrange
+        doNothing().when(commandHandler).handleUpdateProductCommand(any(UpdateProductCommand.class));
+
+        // Act
+        apiGateway.sendCommand(updateCommand);
+
+        // Assert
+        verify(commandHandler, times(1)).handleUpdateProductCommand(updateCommand);
+    }
+
+    @Test
+    void sendCommand_DeleteProductCommand_ShouldDelegateToCommandHandler() {
+        // Arrange
+        doNothing().when(commandHandler).handleDeleteProductCommand(any(DeleteProductCommand.class));
+
+        // Act
+        apiGateway.sendCommand(deleteCommand);
+
+        // Assert
+        verify(commandHandler, times(1)).handleDeleteProductCommand(deleteCommand);
+    }
+
+    @Test
+    void sendQuery_GetProductQuery_ShouldDelegateToQueryHandler() {
+        // Arrange
+        when(queryHandler.handle(any(GetProductQuery.class))).thenReturn(product);
+
+        // Act
+        Product result = apiGateway.sendQuery(getProductQuery);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals("123", result.getId());
+        verify(queryHandler, times(1)).handle(getProductQuery);
+    }
+
+    @Test
+    void sendQuery_GetAllProductsQuery_ShouldDelegateToQueryHandler() {
+        // Arrange
+        when(queryHandler.handle(any(GetAllProductsQuery.class))).thenReturn(productList);
+
+        // Act
+        List<Product> result = apiGateway.sendQuery(getAllProductsQuery);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals(2, result.size());
+        verify(queryHandler, times(1)).handle(getAllProductsQuery);
+    }
+}
+
+
+// TEST 2
+package com.example.cqrsdemo.adapter.rest;
+
+import com.example.cqrsdemo.command.api.CreateProductCommand;
+import com.example.cqrsdemo.command.api.UpdateProductCommand;
+import com.example.cqrsdemo.domain.model.Product;
+import com.example.cqrsdemo.gateway.CqrsApiGateway;
+import com.example.cqrsdemo.query.api.GetAllProductsQuery;
+import com.example.cqrsdemo.query.api.GetProductQuery;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import java.util.Arrays;
+import java.util.List;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+@ExtendWith(MockitoExtension.class)
+class ProductRestAdapterTest {
+
+    private MockMvc mockMvc;
+
+    @Mock
+    private CqrsApiGateway apiGateway;
+
+    @InjectMocks
+    private ProductRestAdapter restAdapter;
+
+    private ObjectMapper objectMapper;
+    private Product product;
+    private List<Product> products;
+
+    @BeforeEach
+    void setUp() {
+        mockMvc = MockMvcBuilders.standaloneSetup(restAdapter).build();
+        objectMapper = new ObjectMapper();
+
+        // Setup product
+        product = new Product();
+        product.setId("123");
+        product.setName("Test Product");
+        product.setDescription("Test Description");
+        product.setPrice(100.0);
+        product.setQuantity(10);
+
+        // Setup product list
+        Product product2 = new Product();
+        product2.setId("456");
+        product2.setName("Another Product");
+        products = Arrays.asList(product, product2);
+    }
+
+    @Test
+    void createProduct_ShouldReturnCreatedStatusAndProductId() throws Exception {
+        // Arrange
+        CreateProductCommand command = new CreateProductCommand();
+        command.setName("Test Product");
+        command.setDescription("Test Description");
+        command.setPrice(100.0);
+        command.setQuantity(10);
+
+        when(apiGateway.sendCommand(any(CreateProductCommand.class))).thenReturn("123");
+
+        // Act & Assert
+        mockMvc.perform(post("/api/products")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(command)))
+                .andExpect(status().isCreated())
+                .andExpect(content().string("123"));
+
+        verify(apiGateway, times(1)).sendCommand(any(CreateProductCommand.class));
+    }
+
+    @Test
+    void updateProduct_ShouldReturnOkStatus() throws Exception {
+        // Arrange
+        UpdateProductCommand command = new UpdateProductCommand();
+        command.setName("Updated Product");
+        command.setDescription("Updated Description");
+        command.setPrice(150.0);
+        command.setQuantity(15);
+
+        doNothing().when(apiGateway).sendCommand(any(UpdateProductCommand.class));
+
+        // Act & Assert
+        mockMvc.perform(put("/api/products/123")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(command)))
+                .andExpect(status().isOk());
+
+        verify(apiGateway, times(1)).sendCommand(any(UpdateProductCommand.class));
+    }
+
+    @Test
+    void deleteProduct_ShouldReturnNoContentStatus() throws Exception {
+        // Arrange
+        doNothing().when(apiGateway).sendCommand(any());
+
+        // Act & Assert
+        mockMvc.perform(delete("/api/products/123"))
+                .andExpect(status().isNoContent());
+
+        verify(apiGateway, times(1)).sendCommand(any());
+    }
+
+    @Test
+    void getProduct_ShouldReturnProductAndOkStatus() throws Exception {
+        // Arrange
+        when(apiGateway.sendQuery(any(GetProductQuery.class))).thenReturn(product);
+
+        // Act & Assert
+        mockMvc.perform(get("/api/products/123"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("123"))
+                .andExpect(jsonPath("$.name").value("Test Product"));
+
+        verify(apiGateway, times(1)).sendQuery(any(GetProductQuery.class));
+    }
+
+    @Test
+    void getAllProducts_ShouldReturnProductListAndOkStatus() throws Exception {
+        // Arrange
+        when(apiGateway.sendQuery(any(GetAllProductsQuery.class))).thenReturn(products);
+
+        // Act & Assert
+        mockMvc.perform(get("/api/products"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value("123"))
+                .andExpect(jsonPath("$[1].id").value("456"))
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.length()").value(2));
+
+        verify(apiGateway, times(1)).sendQuery(any(GetAllProductsQuery.class));
+    }
+}
+
+//TEST 3
+
+package com.example.cqrsdemo.integration;
+
+import com.example.cqrsdemo.command.api.CreateProductCommand;
+import com.example.cqrsdemo.command.api.UpdateProductCommand;
+import com.example.cqrsdemo.domain.model.Product;
+import com.example.cqrsdemo.domain.repository.ProductRepository;
+import com.example.cqrsdemo.gateway.CqrsApiGateway;
+import com.example.cqrsdemo.query.api.GetAllProductsQuery;
+import com.example.cqrsdemo.query.api.GetProductQuery;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+@SpringBootTest
+@ActiveProfiles("test")
+class CqrsIntegrationTest {
+
+    @Autowired
+    private CqrsApiGateway apiGateway;
+
+    @Autowired
+    private ProductRepository productRepository;
+
+    private String productId;
+    
+    @BeforeEach
+    void setUp() {
+        // Limpar o banco de dados antes de cada teste
+        productRepository.deleteAll();
+    }
+
+    @AfterEach
+    void tearDown() {
+        // Limpar o banco de dados após cada teste
+        productRepository.deleteAll();
+    }
+
+    @Test
+    void testFullCqrsFlow() {
+        // 1. Criar um produto via comando
+        CreateProductCommand createCommand = new CreateProductCommand();
+        createCommand.setName("Integration Test Product");
+        createCommand.setDescription("Product created during integration test");
+        createCommand.setPrice(99.99);
+        createCommand.setQuantity(5);
+
+        productId = apiGateway.sendCommand(createCommand);
+        assertNotNull(productId);
+        assertTrue(productId.length() > 0);
+
+        // 2. Verificar se o produto foi criado corretamente via consulta
+        GetProductQuery getQuery = new GetProductQuery(productId);
+        Product product = apiGateway.sendQuery(getQuery);
+
+        assertNotNull(product);
+        assertEquals("Integration Test Product", product.getName());
+        assertEquals("Product created during integration test", product.getDescription());
+        assertEquals(99.99, product.getPrice());
+        assertEquals(5, product.getQuantity());
+
+        // 3. Atualizar o produto via comando
+        UpdateProductCommand updateCommand = new UpdateProductCommand();
+        updateCommand.setId(productId);
+        updateCommand.setName("Updated Integration Test Product");
+        updateCommand.setDescription("Updated product description");
+        updateCommand.setPrice(149.99);
+        updateCommand.setQuantity(10);
+
+        apiGateway.sendCommand(updateCommand);
+
+        // 4. Verificar se o produto foi atualizado corretamente via consulta
+        product = apiGateway.sendQuery(getQuery);
+        
+        assertNotNull(product);
+        assertEquals("Updated Integration Test Product", product.getName());
+        assertEquals("Updated product description", product.getDescription());
+        assertEquals(149.99, product.getPrice());
+        assertEquals(10, product.getQuantity());
+
+        // 5. Verificar listagem de todos os produtos
+        GetAllProductsQuery getAllQuery = new GetAllProductsQuery();
+        List<Product> products = apiGateway.sendQuery(getAllQuery);
+        
+        assertNotNull(products);
+        assertEquals(1, products.size());
+        assertEquals(productId, products.get(0).getId());
+    }
+}
+
+// TEST 4
+
+// === Test Resources ===
+// src/test/resources/application-test.properties
+
+spring.datasource.url=jdbc:h2:mem:testdb
+spring.datasource.username=sa
+spring.datasource.password=
+spring.datasource.driver-class-name=org.h2.Driver
+spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
+spring.jpa.hibernate.ddl-auto=create-drop
+
+# Opcional - ativar console H2 para depuração
+spring.h2.console.enabled=true
+
+# Por padrão, a API REST não é habilitada em testes
+cqrs.rest.enabled=false
