@@ -1,3 +1,4 @@
+
 package com.example.cqrsdemo.query.api;
 
 public class GetAllProductsQuery {
